@@ -12,48 +12,120 @@ mod run;
 mod target;
 mod watch;
 
-use std::env;
+use clap::{Args, Parser, Subcommand};
 use std::process::ExitCode;
 
+#[derive(Parser, Debug, Clone)]
+#[command(name = "amane")]
+struct CommandArgs {
+    /// TODO
+    #[clap(subcommand)]
+    subcommand: Subcommands,
+}
+
+#[derive(Debug, Subcommand, Clone)]
+enum Subcommands {
+    /// TODO
+    New {
+        #[command(flatten)]
+        args: NewArgs,
+    },
+    /// TODO
+    Startup {
+        #[command(flatten)]
+        args: StartupArgs,
+    },
+    /// TODO
+    Target {
+        #[command(flatten)]
+        args: TargetArgs,
+    },
+    /// TODO
+    Compile {
+        #[command(flatten)]
+        args: CompileArgs,
+    },
+    /// TODO
+    Run,
+    /// TODO
+    Restart,
+    /// TODO
+    Dev,
+    /// TODO
+    Clean {
+        #[command(flatten)]
+        args: CleanArgs,
+    },
+    /// TODO
+    Ipc {
+        #[command(flatten)]
+        args: IpcArgs,
+    },
+}
+
+#[derive(Args, Debug, Clone)]
+struct NewArgs {
+    /// TODO
+    #[arg(long, default_value_t = false)]
+    example: bool,
+
+    /// TODO
+    folder: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+struct StartupArgs {
+    /// TODO
+    #[arg(long, default_value_t = false)]
+    example: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+struct TargetArgs {
+    /// TODO
+    folder: Option<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+struct IpcArgs {
+    /// TODO
+    #[arg(value_parser =  clap::builder::PossibleValuesParser::new(["call"]))]
+    _action: String,
+
+    /// TODO
+    name: String,
+
+    /// TODO
+    #[arg(trailing_var_arg = true)]
+    args: Vec<String>,
+}
+
+#[derive(Args, Debug, Clone)]
+struct CleanArgs {
+    /// TODO
+    #[arg(long, default_value_t = false)]
+    yes: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+struct CompileArgs {
+    /// TODO
+    #[arg(long, default_value_t = false)]
+    restart: bool,
+}
+
 fn main() -> ExitCode {
-    let arguments: Vec<String> = env::args().skip(1).collect();
-
-    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
-
-    match words.as_slice() {
-        ["new"] => new::run(None, false),
-
-        ["new", "--example"] => new::run(None, true),
-
-        ["new", folder] => new::run(Some(folder), false),
-
-        ["new", folder, "--example"] => new::run(Some(folder), true),
-
-        ["startup"] => startup(false),
-
-        ["startup", "--example"] => startup(true),
-
-        ["target"] => target::run(None),
-
-        ["target", folder] => target::run(Some(folder)),
-
-        ["compile"] => compile::run(false),
-
-        ["compile", "--restart"] => compile::run(true),
-
-        ["run"] => run::run(),
-
-        ["restart"] => restart::run(),
-
-        ["dev"] => dev::run(),
-
-        ["clean"] => clean::run(false),
-
-        ["clean", "--yes"] => clean::run(true),
-
-        ["ipc", "call", name, ..] => call::run(name, &arguments[3..]),
-
-        _ => usage(),
+    let args = CommandArgs::parse();
+    match args.subcommand {
+        Subcommands::New { args } => new::run(args.folder.as_deref(), args.example),
+        Subcommands::Startup { args } => startup(args.example),
+        Subcommands::Target { args } => target::run(args.folder.as_deref()),
+        Subcommands::Compile { args } => compile::run(args.restart),
+        Subcommands::Run => run::run(),
+        Subcommands::Restart => restart::run(),
+        Subcommands::Dev => dev::run(),
+        Subcommands::Clean { args } => clean::run(args.yes),
+        Subcommands::Ipc { args } => call::run(&args.name, &args.args),
     }
 }
 
@@ -64,25 +136,4 @@ fn startup(example: bool) -> ExitCode {
     );
 
     new::run(None, example)
-}
-
-fn usage() -> ExitCode {
-    eprintln!("usage:");
-    eprintln!("  amane new [folder]                   create a shell, in ~/.config/amane by default");
-    eprintln!("  amane new [folder] --example         create a full example bar instead");
-    eprintln!("  amane target [folder]                show or set the folder your shell lives in");
-    eprintln!("  amane dev                           rebuild and restart on every save");
-    eprintln!("  amane compile                        build the optimised shell");
-    eprintln!("  amane compile --restart              build it, then restart the running shell");
-    eprintln!("  amane run                            start the compiled shell");
-    eprintln!(
-        "  amane restart                        stop the running shell and start the compiled one"
-    );
-    eprintln!(
-        "  amane clean                          remove the build cache, keep the compiled shell"
-    );
-    eprintln!("  amane clean --yes                    the same, without asking first");
-    eprintln!("  amane ipc call <name> [arguments...] call a handler in the running shell");
-
-    ExitCode::FAILURE
 }
