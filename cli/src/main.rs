@@ -15,101 +15,103 @@ mod watch;
 use clap::{Args, Parser, Subcommand};
 use std::process::ExitCode;
 
+/// Blazingly fast library for building Wayland dekstop shells.
+///
+///
 #[derive(Parser, Debug, Clone)]
-#[command(name = "amane")]
+#[command(name = "amane", version)]
 struct CommandArgs {
-    /// TODO
     #[clap(subcommand)]
     subcommand: Subcommands,
 }
 
 #[derive(Debug, Subcommand, Clone)]
 enum Subcommands {
-    /// TODO
+    /// Create a new shell configuration
     New {
         #[command(flatten)]
         args: NewArgs,
     },
-    /// TODO
+    /// Deprecated, use amane new instead.
+    #[command(hide = true)]
     Startup {
         #[command(flatten)]
         args: StartupArgs,
     },
-    /// TODO
+    /// Show or set the active shell directory
     Target {
         #[command(flatten)]
         args: TargetArgs,
     },
-    /// TODO
+    /// Build the optimized shell binary
     Compile {
         #[command(flatten)]
         args: CompileArgs,
     },
-    /// TODO
+    /// Start the compiled shell
     Run,
-    /// TODO
+    /// Stop the running shell and start the compiled one
     Restart,
-    /// TODO
+    /// Rebuild and restart the shell on every config save
     Dev,
-    /// TODO
+    /// Clear the local build cache, keeps the compiled shell
     Clean {
         #[command(flatten)]
         args: CleanArgs,
     },
-    /// TODO
+    /// Call a handler in the running shell.
     Ipc {
-        #[command(flatten)]
-        args: IpcArgs,
+        #[command(subcommand)]
+        action: IpcSubcommand,
     },
 }
 
 #[derive(Args, Debug, Clone)]
 struct NewArgs {
-    /// TODO
+    /// Provide an example configuration template
     #[arg(long, default_value_t = false)]
     example: bool,
 
-    /// TODO
+    /// Target installation directory [default: ~/.config/amane]
+    #[arg(value_name = "FOLDER")]
     folder: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
 struct StartupArgs {
-    /// TODO
     #[arg(long, default_value_t = false)]
     example: bool,
 }
 
 #[derive(Args, Debug, Clone)]
 struct TargetArgs {
-    /// TODO
+    /// Changes where amane looks for your shell
     folder: Option<String>,
 }
 
-#[derive(Args, Debug, Clone)]
-struct IpcArgs {
-    /// TODO
-    #[arg(value_parser =  clap::builder::PossibleValuesParser::new(["call"]))]
-    _action: String,
+#[derive(Subcommand, Debug, Clone)]
+enum IpcSubcommand {
+    /// <NAME> [ARGS]...  Call a handler with the given name.
+    Call {
+        /// Name of the target hook handle
+        name: String,
 
-    /// TODO
-    name: String,
-
-    /// TODO
-    #[arg(trailing_var_arg = true)]
-    args: Vec<String>,
+        /// Dynamic list of args to be sent to the hook
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
 }
 
 #[derive(Args, Debug, Clone)]
 struct CleanArgs {
-    /// TODO
+    /// Bypass the verification prompt and purge immediately
     #[arg(long, default_value_t = false)]
     yes: bool,
 }
 
 #[derive(Args, Debug, Clone)]
 struct CompileArgs {
-    /// TODO
+    /// Trigger an instant hot-reload restart upon compiling successfully
     #[arg(long, default_value_t = false)]
     restart: bool,
 }
@@ -125,7 +127,9 @@ fn main() -> ExitCode {
         Subcommands::Restart => restart::run(),
         Subcommands::Dev => dev::run(),
         Subcommands::Clean { args } => clean::run(args.yes),
-        Subcommands::Ipc { args } => call::run(&args.name, &args.args),
+        Subcommands::Ipc { action } => match action {
+            IpcSubcommand::Call { name, args } => call::run(&name, &args),
+        },
     }
 }
 
