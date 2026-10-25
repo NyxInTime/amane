@@ -1,100 +1,50 @@
 use std::env;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
-use std::sync::OnceLock;
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::Workspace;
 
 #[derive(Deserialize, Debug)]
-#[serde(tag = "event", content = "data")]
-enum Payload {
-    #[serde(rename = "workspaces")]
-    Workspace(Vec<WorkspaceData>),
-
-    #[serde(rename = "windows")]
-    Window(Vec<WindowData>),
+struct Payload {
+    pub data: Vec<WorkspaceData>,
+    #[allow(unused)]
+    pub event: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
+pub struct WorkspacesResponse {
+    pub ok: Vec<WorkspaceData>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct WorkspaceData {
+    #[allow(unused)]
     pub id: String,
     pub name: String,
     pub index: u32,
     pub output: String,
+    #[allow(unused)]
     pub layout: String,
     pub active: bool,
     pub focused: bool,
+    #[allow(unused)]
     pub occupied: bool,
     pub urgent: bool,
     pub window_count: u32,
+    #[allow(unused)]
     pub layout_override: bool,
+    #[allow(unused)]
     pub named: bool,
+    #[allow(unused)]
     pub focused_window: Option<String>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct WindowData {
-    pub id: String,
-    pub title: String,
-    pub app_id: String,
-    pub pid: u32,
-    pub output: String,
-    pub workspace: String,
-
-    // Geometry and Layout (Positions can be negative)
-    pub x: i32,
-    pub y: i32,
-    pub w: u32,
-    pub h: u32,
-    pub column: u32,
-    pub row: u32,
-
-    // Window States
-    pub active: bool,
-    pub focused: bool,
-    pub visible: bool,
-    pub urgent: bool,
-    pub floating: bool,
-    pub fullscreen: bool,
-    pub maximized: bool,
-    pub maximized_to_edges: bool,
-    pub pinned: bool,
-    pub tabbed: bool,
-    pub tab_hidden: bool,
-    pub tab_index: i32, // Uses -1 when not tabbed
-    pub title_bar: bool,
-    pub xwayland: bool,
-
-    // Metadata & Extensions
-    pub content_type: String,
-    pub xdg_tag: String,
-    pub parent: String,
-    pub scratchpad: String,
-    pub snap: Option<Value>, // Catches Null or future snap states Safely
-
-    // Nested Effect Objects
-    pub border_effect: Effect,
-    pub window_effect: Effect,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct Effect {
-    pub name: String,
-    pub source: String,
-    pub pool: String,
-    pub suppressed: bool,
-
-    // Option protects window_effect which lacks this key completely
-    pub overlay: Option<String>,
 }
 
 pub fn listen(mut on_change: impl FnMut(Vec<Workspace>)) {
     // write send
-    let Some(mut stream) = send(r#"{"cmd":"subscribe","events":["workspaces","windows"]}"#) else {
+    let Some(stream) = send(r#"{"cmd":"subscribe","events":["workspaces"]}"#) else {
         return;
     };
 
@@ -106,6 +56,22 @@ pub fn listen(mut on_change: impl FnMut(Vec<Workspace>)) {
         let Some(event) = parse(&line) else {
             continue;
         };
+
+        let mut workspaces = Vec::new();
+        event.iter().for_each(|w| {
+            workspaces.push(Workspace {
+                id: workspaces.len() as i64,
+                index: w.index,
+                name: Some(w.name.clone()),
+                output: Some(w.output.clone()),
+                active: w.active,
+                focused: w.focused,
+                urgent: w.urgent,
+                windows: w.window_count,
+            });
+        });
+
+        on_change(workspaces);
     }
 }
 
@@ -116,55 +82,47 @@ pub fn send(request: &str) -> Option<UnixStream> {
     let payload = format!("{}\n", request);
 
     let mut stream = UnixStream::connect(path).ok()?;
-    eprintln!("sending request: {}", payload);
 
     stream.write_all(payload.as_bytes()).ok()?;
 
     Some(stream)
 }
 
-fn request(stream: &mut UnixStream, command: &str) -> Option<String> {
-    let result = stream.write_all(command.as_bytes());
+//TODO fix this later, for now i just want to be able to see that the info comes in
+fn parse(payload: &str) -> Option<Vec<WorkspaceData>> {
+    match serde_json::from_str::<Payload>(payload) {
+        Ok(response) => Some(response.data),
+        _ => None,
+    }
+}
+fn parse_workspaces(workspaces: &str) -> Option<Vec<WorkspaceData>> {
+    match serde_json::from_str::<WorkspacesResponse>(workspaces) {
+        Ok(response) => Some(response.ok),
+        Err(_) => None,
+    }
+}
 
-    eprintln!("result: {:?}", result);
-
+pub fn focus_workspace(id: i64) {
+    let Some(stream) = send(r#"{"cmd":"workspaces"}"#) else {
+        return;
+    };
+    let mut reply = String::new();
+    let _ = BufReader::new(stream).read_line(&mut reply);
+    let Some(workspaces) = parse_workspaces(&reply) else {
+        return;
+    };
+    let Some(workspace): Option<WorkspaceData> = workspaces.get(id as usize).cloned() else {
+        return;
+    };
+    let arg = format!("workspace-switch:{}/{}", workspace.index, workspace.output);
+    let request = json!({
+    "cmd": "msg",
+    "arg": arg,
+    }); //r#"{"cmd":"msg","arg":"workspace-switch:3/HDMI-A-1"}"#;
+    let Some(stream) = send(&request.to_string()) else {
+        return;
+    };
     let mut reply = String::new();
 
-    stream.read_to_string(&mut reply).ok()?;
-
-    Some(reply)
+    let _ = BufReader::new(stream).read_line(&mut reply);
 }
-
-fn fetch(stream: &mut UnixStream) -> Option<Vec<Workspace>> {
-    let workspaces = request(stream, r#"{"cmd":"workspaces"}"#)?;
-
-    parse(&workspaces)
-}
-
-//TODO fix this later, for now i just want to be able to see that the info comes in
-fn parse(workspaces: &str) -> Option<Vec<Workspace>> {
-    match serde_json::from_str::<Payload>(workspaces) {
-        Ok(Payload::Workspace(workspaces)) => {
-            eprintln!("got {} workspaces.", workspaces.len());
-            eprintln!("the first workspace is {:?}", workspaces.get(0));
-        }
-        Ok(Payload::Window(windows)) => {
-            //eprintln!("got {} windows", windows.len());
-            //eprintln!("first window is {:?}", windows.get(0));
-        }
-        _ => {
-            eprintln!("wrong branch")
-        }
-    }
-    //eprintln!("{:?}", workspaces);
-    //eprintln!("--------------------------\n\n\n");
-
-    let mut shown: Vec<Workspace> = Vec::new();
-    //let mut focused = None;
-
-    let mut list = Vec::new();
-
-    Some(list)
-}
-
-pub fn focus_workspace(id: i64) {}
