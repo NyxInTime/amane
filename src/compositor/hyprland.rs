@@ -12,7 +12,7 @@ use crate::Workspace;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConfigProvider {
     Hyprlang, // hyprland.conf files
-    Lua,      // hyprland.lua files 
+    Lua,      // hyprland.lua files
 }
 
 static HYPRLAND_CONFIG_PROVIDER: OnceLock<ConfigProvider> = OnceLock::new();
@@ -62,7 +62,9 @@ pub fn focus_workspace(id: i64) {
                  * only gets a syntax error back; {:?} quotes the target as a string
                  * with escapes lua reads the same way
                  */
-                let _ = request(&format!("dispatch hl.dsp.focus({{ workspace = {target:?} }})"));
+                let _ = request(&format!(
+                    "dispatch hl.dsp.focus({{ workspace = {target:?} }})"
+                ));
             }
         }
         return;
@@ -78,7 +80,9 @@ pub fn focus_workspace(id: i64) {
         }
         _ => {
             // the legacy form failed, so ask in lua and keep it only if hyprland accepts
-            let lua_reply = request(&format!("dispatch hl.dsp.focus({{ workspace = {target:?} }})"));
+            let lua_reply = request(&format!(
+                "dispatch hl.dsp.focus({{ workspace = {target:?} }})"
+            ));
 
             let accepted = lua_reply.is_some_and(|text| text.starts_with("ok"));
 
@@ -178,13 +182,13 @@ fn parse(workspaces: &str, monitors: &str) -> Option<Vec<Workspace>> {
     let mut list = Vec::new();
 
     for workspace in workspaces.as_array()? {
-        let id = workspace["id"].as_i64()?;
         let name = workspace["name"].as_str()?;
 
         // special workspaces, like the scratchpad, have no place in a bar
         if name == "special" || name.starts_with("special:") {
             continue;
         }
+        let id = workspace["id"].as_i64()?;
 
         // unnamed workspaces are named after their id
         let named = name != id.to_string();
@@ -257,4 +261,3 @@ mod tests {
         assert_eq!(list[3].name.as_deref(), Some("chat"));
     }
 }
-        
